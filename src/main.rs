@@ -11,7 +11,7 @@ struct Args {
     address: String,
 
     /// Port to listen on
-    #[arg(short, long, default_value_t = 3000)]
+    #[arg(short, long, default_value_t = 15)]
     port: u16,
 }
 
@@ -73,6 +73,38 @@ async fn broadcast_handler(Json(payload): Json<BroadcastRequest>) -> StatusCode 
     StatusCode::ACCEPTED
 }
 
+#[derive(Deserialize)]
+struct UdpRequest {
+    address: String,
+    port: u16,
+    data: String,
+}
+
+async fn udp_handler(Json(payload): Json<UdpRequest>) -> StatusCode {
+    // Create a UDP socket
+    let socket = match tokio::net::UdpSocket::bind("0.0.0.0:0").await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to bind UDP socket: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    };
+
+    let addr = format!("{}:{}", payload.address, payload.port);
+    let data = payload.data.as_bytes();
+
+    match socket.send_to(data, &addr).await {
+        Ok(bytes_sent) => {
+            println!("Sent {} bytes to {}:{}", bytes_sent, payload.address, payload.port);
+            StatusCode::OK
+        }
+        Err(e) => {
+            eprintln!("Failed to send UDP packet to {}:{} : {}", payload.address, payload.port, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -80,7 +112,8 @@ async fn main() {
     // build our application with a single route
     let app = Router::new()
         .route("/", get(|| async { "" }))
-        .route("/broadcast", post(broadcast_handler));
+        .route("/broadcast", post(broadcast_handler))
+        .route("/udp", post(udp_handler));
     
     println!("Listening on {}:{}", args.address, args.port);
 
